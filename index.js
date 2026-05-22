@@ -1,10 +1,17 @@
 const express = require("express");
 const crypto = require("crypto");
+const fs = require("fs");
 const app = express();
 app.use(express.json());
 
-const fs = require("fs");
-const PRIVATE_KEY = fs.readFileSync("/etc/secrets/private_key.pem", "utf8");
+// Read private key from secret file
+let PRIVATE_KEY;
+try {
+  PRIVATE_KEY = fs.readFileSync("/etc/secrets/private_key.pem", "utf8");
+} catch(e) {
+  // fallback to env var, fix line breaks
+  PRIVATE_KEY = (process.env.PRIVATE_KEY || "").replace(/\\n/g, "\n");
+}
 const PASSPHRASE = process.env.PASSPHRASE;
 
 app.post("/", (req, res) => {
@@ -12,35 +19,39 @@ app.post("/", (req, res) => {
     const { encrypted_aes_key, encrypted_flow_data, initial_vector } = req.body;
 
     const decryptedAesKey = crypto.privateDecrypt(
-      { key: PRIVATE_KEY, passphrase: PASSPHRASE, padding: crypto.constants.RSA_PKCS1_OAEP_PADDING, oaepHash: "sha256" },
+      {
+        key: PRIVATE_KEY,
+        passphrase: PASSPHRASE,
+        padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
+        oaepHash: "sha256"
+      },
       Buffer.from(encrypted_aes_key, "base64")
     );
 
     const iv = Buffer.from(initial_vector, "base64");
-    const decipher = crypto.createDecipheriv("aes-128-gcm", decryptedAesKey, iv);
     const encryptedData = Buffer.from(encrypted_flow_data, "base64");
     const TAG_LENGTH = 16;
     const encryptedBody = encryptedData.slice(0, -TAG_LENGTH);
     const authTag = encryptedData.slice(-TAG_LENGTH);
+
+    const decipher = crypto.createDecipheriv("aes-128-gcm", decryptedAesKey, iv);
     decipher.setAuthTag(authTag);
     const decryptedBody = Buffer.concat([decipher.update(encryptedBody), decipher.final()]);
     const body = JSON.parse(decryptedBody.toString());
 
-    if (body.action === "ping") {
-      const response = { version: body.version, data: { status: "active" } };
-      const cipher = crypto.createCipheriv("aes-128-gcm", decryptedAesKey, iv);
-      const encrypted = Buffer.concat([cipher.update(JSON.stringify(response)), cipher.final()]);
-      const tag = cipher.getAuthTag();
-      return res.send(Buffer.concat([encrypted, tag]).toString("base64"));
-    }
+    console.log("Decrypted body:", JSON.stringify(body));
 
-    const response = { version: body.version, screen: "WELCOME", data: {} };
+    const response = body.action === "ping"
+      ? { version: body.version, data: { status: "active" } }
+      : { version: body.version, screen: "WELCOME", data: {} };
+
     const cipher = crypto.createCipheriv("aes-128-gcm", decryptedAesKey, iv);
     const encrypted = Buffer.concat([cipher.update(JSON.stringify(response)), cipher.final()]);
     const tag = cipher.getAuthTag();
     res.send(Buffer.concat([encrypted, tag]).toString("base64"));
+
   } catch (err) {
-    console.error(err);
+    console.error("Error:", err.message);
     res.status(500).send("Error");
   }
 });
