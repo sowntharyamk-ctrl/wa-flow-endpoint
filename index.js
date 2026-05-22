@@ -9,10 +9,8 @@ let PRIVATE_KEY;
 try {
   PRIVATE_KEY = fs.readFileSync("/etc/secrets/private_key.pem", "utf8");
 } catch(e) {
-  // fallback to env var, fix line breaks
   PRIVATE_KEY = (process.env.PRIVATE_KEY || "").replace(/\\n/g, "\n");
 }
-const PASSPHRASE = process.env.PASSPHRASE;
 
 app.post("/", (req, res) => {
   try {
@@ -21,7 +19,6 @@ app.post("/", (req, res) => {
     const decryptedAesKey = crypto.privateDecrypt(
       {
         key: PRIVATE_KEY,
-        passphrase: PASSPHRASE,
         padding: crypto.constants.RSA_PKCS1_OAEP_PADDING,
         oaepHash: "sha256"
       },
