@@ -3,7 +3,8 @@ const crypto = require("crypto");
 const app = express();
 app.use(express.json());
 
-const PRIVATE_KEY = process.env.PRIVATE_KEY;
+const fs = require("fs");
+const PRIVATE_KEY = fs.readFileSync("/etc/secrets/private_key.pem", "utf8");
 const PASSPHRASE = process.env.PASSPHRASE;
 
 app.post("/", (req, res) => {
